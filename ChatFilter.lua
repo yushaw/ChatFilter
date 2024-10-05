@@ -65,7 +65,7 @@ function ChatFilter:LoadKeywords()
         -- 默认关键词
         self.keywords = {
             {{"10H", "10人"}, {"dz", "盗贼"}},
-            {{"25H", "25人"}, {"战斗", "战神"}}
+            {{"25H", "25人"}, {"战斗", "破甲"}}
         }
         ChatFilterDB.keywords = self.keywords
         self:DebugPrint("使用默认关键词")
@@ -77,6 +77,7 @@ end
 function ChatFilter:CreateFilterFrame()
     if self.frame then return end
     
+    -- 主框体
     self.frame = CreateFrame("Frame", "ChatFilterFrame", UIParent, "BasicFrameTemplateWithInset")
     self.frame:SetSize(400, 500)
     self.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -85,28 +86,45 @@ function ChatFilter:CreateFilterFrame()
     self.frame:RegisterForDrag("LeftButton")
     self.frame:SetScript("OnDragStart", self.frame.StartMoving)
     self.frame:SetScript("OnDragStop", self.frame.StopMovingOrSizing)
+
+    -- 标题
     self.frame.title = self.frame:CreateFontString(nil, "OVERLAY")
     self.frame.title:SetFontObject("GameFontHighlight")
     self.frame.title:SetPoint("LEFT", self.frame.TitleBg, "LEFT", 5, 0)
     self.frame.title:SetText("聊天过滤")
 
+    -- 关闭按钮
     self.frame.CloseButton:SetScript("OnClick", function()
         self:OnFrameClosed()
         self.frame:Hide()
     end)
 
-    self.scrollFrame = CreateFrame("ScrollFrame", nil, self.frame, "UIPanelScrollFrameTemplate")
+    -- 滚动框体
+    self.scrollFrame = CreateFrame("ScrollFrame", nil, self.frame)
     self.scrollFrame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 8, -30)
-    self.scrollFrame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -30, 28)
+    self.scrollFrame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -8, 28)
 
+    -- 内容框体
     self.content = CreateFrame("Frame", nil, self.scrollFrame)
-    self.content:SetSize(354, 1)
+    self.content:SetSize(self.scrollFrame:GetWidth(), 1) -- 初始高度为1
     self.scrollFrame:SetScrollChild(self.content)
 
-    self.scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+    self.content:SetScript("OnSizeChanged", function(_, width, height)
+    end)
+
+
+    -- 滚动事件
+    self.scrollFrame:EnableMouseWheel(true)
+    self.scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local current = self:GetVerticalScroll()
+        local max = self:GetVerticalScrollRange()
+        local new = current - (delta * 20)
+        new = math.max(0, math.min(new, max))
+        self:SetVerticalScroll(new)
         ChatFilter:UpdateScrollState()
     end)
 
+    -- "跳转到最新"按钮
     self.latestButton = CreateFrame("Button", nil, self.frame, "UIPanelButtonTemplate")
     self.latestButton:SetSize(100, 22)
     self.latestButton:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -8, 6)
@@ -115,7 +133,61 @@ function ChatFilter:CreateFilterFrame()
         ChatFilter:ScrollToBottom()
     end)
 
+    -- "清除所有记录"按钮
+    self.clearButton = CreateFrame("Button", nil, self.frame, "UIPanelButtonTemplate")
+    self.clearButton:SetSize(100, 22)
+    self.clearButton:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 8, 6)
+    self.clearButton:SetText("清除所有")
+    self.clearButton:SetScript("OnClick", function()
+        ChatFilter:ClearAllRecords()
+    end)
+
     self.frame:Hide()
+end
+
+-- 更新 ScrollToBottom 函数
+function ChatFilter:ScrollToBottom()
+    C_Timer.After(0.05, function()
+        self.scrollFrame:SetVerticalScroll(self.scrollFrame:GetVerticalScrollRange())
+        self.autoScroll = true
+        self:UpdateScrollState()
+    end)
+end
+
+-- 更新 UpdateScrollState 函数
+function ChatFilter:UpdateScrollState()
+    local scrollFrame = self.scrollFrame
+    local currentScroll = scrollFrame:GetVerticalScroll()
+    local maxScroll = scrollFrame:GetVerticalScrollRange()
+    self.autoScroll = (currentScroll >= maxScroll - 1)
+    
+    if self.autoScroll then
+        self.latestButton:Hide()
+    else
+        self.latestButton:Show()
+    end
+end
+
+-- 新增: 清除所有记录的函数
+function ChatFilter:ClearAllRecords()
+    -- 清空内容框体
+    for _, child in ipairs({self.content:GetChildren()}) do
+        child:Hide()
+        child:SetParent(nil)
+    end
+    self.content:SetHeight(1)
+
+    -- 重置最后消息记录
+    self.lastMessages = {}
+
+    -- 清空保存的消息
+    ChatFilterDB.recentMessages = {}
+
+    -- 更新滚动状态
+    self:UpdateScrollState()
+
+    -- 提示用户
+    print("已清除所有筛选记录。")
 end
 
 -- 注册事件
@@ -147,7 +219,7 @@ function ChatFilter:OnChatMessage(event, message, sender, _, _, _, _, _, _, _, _
         time = time()
     })
     
-    if #ChatFilterDB.recentMessages > 1000 then
+    if #ChatFilterDB.recentMessages > 3000 then
         table.remove(ChatFilterDB.recentMessages)
     end
 
@@ -203,9 +275,10 @@ function ChatFilter:GetCachedClass(name)
 end
 
 -- 显示过滤后的消息
--- 修改 DisplayFilteredMessage 函数
 function ChatFilter:DisplayFilteredMessage(event, message, sender)
-    if not self.frame or not self.frame:IsShown() or not self.content then return end
+    if not self.frame or not self.frame:IsShown() or not self.content then 
+        return 
+    end
 
     local currentTime = date("%H:%M")
 
@@ -216,13 +289,6 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
             self.lastMessages[sender].time = currentTime
             self.lastMessages[sender].timeString:SetText(currentTime)
             
-            -- 将这条消息移到最后（最新）
-            local line = self.lastMessages[sender].line
-            line:SetParent(nil)
-            line:SetParent(self.content)
-            line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, -self.content:GetHeight())
-            
-            -- 重新排列其他消息
             self:ReorderMessages()
             return
         else
@@ -234,13 +300,13 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
     end
 
     local line = CreateFrame("Frame", nil, self.content)
-    line:SetSize(self.content:GetWidth(), 20)
-    line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, -self.content:GetHeight())
+    line:SetWidth(self.content:GetWidth())
 
     local fullMessage = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    fullMessage:SetPoint("TOPLEFT", line, "TOPLEFT")
-    fullMessage:SetPoint("RIGHT", line, "RIGHT", -50, 0)
+    fullMessage:SetPoint("TOPLEFT", line, "TOPLEFT", 5, -5)
+    fullMessage:SetPoint("RIGHT", line, "RIGHT", -55, 0)
     fullMessage:SetJustifyH("LEFT")
+    fullMessage:SetSpacing(2)  -- 添加行间距
 
     local r, g, b = self:GetClassColor(sender)
     local coloredName = string.format("|cFF%02X%02X%02X%s|r", r*255, g*255, b*255, sender)
@@ -250,11 +316,14 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
     fullMessage:SetText(coloredName .. ": |cFFFFFFFF" .. highlightedMessage .. "|r")
 
     local timeString = line:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    timeString:SetPoint("RIGHT", line, "RIGHT", -5, 0)
+    timeString:SetPoint("TOPRIGHT", line, "TOPRIGHT", -5, -5)
     timeString:SetText(currentTime)
     timeString:SetTextColor(0.5, 0.5, 0.5)
 
-    line:SetHeight(math.max(fullMessage:GetStringHeight(), timeString:GetStringHeight()))
+    -- 计算并设置行高
+    fullMessage:SetWidth(line:GetWidth() - 60)  -- 减去时间戳的宽度和一些边距
+    local messageHeight = fullMessage:GetStringHeight() + 10  -- 添加一些垂直边距
+    line:SetHeight(messageHeight)
 
     self.lastMessages[sender] = {
         line = line,
@@ -263,9 +332,7 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
         timeString = timeString
     }
 
-    -- 重新排列所有消息
     self:ReorderMessages()
-
     self:UpdateScrollState()
 
     if self.autoScroll then
@@ -280,20 +347,35 @@ function ChatFilter:ReorderMessages()
         table.insert(messages, msg)
     end
 
-    -- 按时间排序，最新的消息在前
-    table.sort(messages, function(a, b) return a.time > b.time end)
+    table.sort(messages, function(a, b) return a.time < b.time end)
 
     local contentHeight = 0
     for i, msg in ipairs(messages) do
-        msg.line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, -contentHeight)
         contentHeight = contentHeight + msg.line:GetHeight()
     end
 
-    self.content:SetHeight(contentHeight)
+    local scrollFrameHeight = self.scrollFrame:GetHeight()
+    local yOffset = 0
 
-    -- 限制显示的行数
+    -- 如果内容高度小于滚动框体高度，从顶部开始显示消息
+    if contentHeight < scrollFrameHeight then
+        yOffset = 0
+    else
+        yOffset = -(contentHeight - scrollFrameHeight)
+    end
+
+    for i, msg in ipairs(messages) do
+        msg.line:ClearAllPoints()
+        msg.line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, yOffset)
+        msg.line:SetPoint("RIGHT", self.content, "RIGHT")
+        msg.line:Show()
+        yOffset = yOffset - msg.line:GetHeight()
+    end
+
+    self.content:SetHeight(math.max(contentHeight, scrollFrameHeight))
+
     while #messages > self.maxLines do
-        local oldestMsg = table.remove(messages)
+        local oldestMsg = table.remove(messages, 1)
         oldestMsg.line:Hide()
         oldestMsg.line:SetParent(nil)
         for sender, msg in pairs(self.lastMessages) do
@@ -302,6 +384,29 @@ function ChatFilter:ReorderMessages()
                 break
             end
         end
+    end
+
+    self:UpdateScrollPosition()
+end
+
+function ChatFilter:UpdateScrollPosition()
+    local scrollFrame = self.scrollFrame
+    local contentHeight = self.content:GetHeight()
+    local frameHeight = scrollFrame:GetHeight()
+    local maxScroll = math.max(contentHeight - frameHeight, 0)
+
+    if self.autoScroll then
+        scrollFrame:SetVerticalScroll(maxScroll)
+    else
+        local currentScroll = scrollFrame:GetVerticalScroll()
+        scrollFrame:SetVerticalScroll(math.min(currentScroll, maxScroll))
+    end
+end
+
+-- 添加调试打印函数
+function ChatFilter:DebugPrint(message)
+    if self.debugMode then
+        print("ChatFilter Debug: " .. message)
     end
 end
 
@@ -324,18 +429,18 @@ end
 
 -- 滚动到底部
 function ChatFilter:ScrollToBottom()
-    C_Timer.After(0.05, function()
-        self.scrollFrame:SetVerticalScroll(self.scrollFrame:GetVerticalScrollRange())
-        self.autoScroll = true
-        self:UpdateScrollState()
-    end)
+    self.autoScroll = true
+    self:UpdateScrollPosition()
 end
 
 -- 更新滚动状态
 function ChatFilter:UpdateScrollState()
-    local scrollFrame = self.scrollFrame
-    local currentScroll = scrollFrame:GetVerticalScroll()
-    local maxScroll = scrollFrame:GetVerticalScrollRange()
+    if not self.scrollFrame then
+        return
+    end
+
+    local currentScroll = self.scrollFrame:GetVerticalScroll()
+    local maxScroll = math.max(self.content:GetHeight() - self.scrollFrame:GetHeight(), 0)
     self.autoScroll = (currentScroll >= maxScroll - 1)
     
     if self.autoScroll then
