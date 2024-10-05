@@ -37,6 +37,17 @@ function ChatFilter:Init()
     self:CreateFilterFrame()
     self:RegisterEvents()
     self.enabled = ChatFilterDB.enabled or false
+
+    -- 清理缓存的消息，只保留最近的100条
+    if ChatFilterDB.recentMessages then
+        local messagesToKeep = math.min(100, #ChatFilterDB.recentMessages)
+        for i = #ChatFilterDB.recentMessages, messagesToKeep + 1, -1 do
+            table.remove(ChatFilterDB.recentMessages, i)
+        end
+    else
+        ChatFilterDB.recentMessages = {}
+    end
+
     if self.enabled then
         self.frame:Show()
         self:RefreshFilteredMessages()
@@ -127,6 +138,8 @@ end
 function ChatFilter:OnChatMessage(event, message, sender, _, _, _, _, _, _, _, _, _, guid)
     if not self.enabled then return end
 
+    self:CleanOldMessages()  -- 清理旧消息
+
     table.insert(ChatFilterDB.recentMessages, 1, {
         event = event,
         message = message,
@@ -134,7 +147,7 @@ function ChatFilter:OnChatMessage(event, message, sender, _, _, _, _, _, _, _, _
         time = time()
     })
     
-    if #ChatFilterDB.recentMessages > 3000 then
+    if #ChatFilterDB.recentMessages > 1000 then
         table.remove(ChatFilterDB.recentMessages)
     end
 
@@ -195,10 +208,20 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
 
     local currentTime = date("%H:%M")
 
-    if self.lastMessages[sender] and self.lastMessages[sender].message == message then
-        self.lastMessages[sender].time = currentTime
-        self.lastMessages[sender].timeString:SetText(currentTime)
-        return
+    -- 检查是否是重复消息
+    if self.lastMessages[sender] then
+        if self.lastMessages[sender].message == message then
+            -- 更新现有消息的时间戳
+            self.lastMessages[sender].time = currentTime
+            self.lastMessages[sender].timeString:SetText(currentTime)
+            -- 将这条消息移到最后（最新）
+            self.lastMessages[sender].line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, -self.content:GetHeight())
+            return
+        else
+            -- 如果是同一个发送者的不同消息，移除旧消息
+            self.lastMessages[sender].line:Hide()
+            self.lastMessages[sender].line:SetParent(nil)
+        end
     end
 
     local line = CreateFrame("Frame", nil, self.content)
@@ -231,11 +254,14 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
         timeString = timeString
     }
 
+    -- 限制显示的行数
     local children = {self.content:GetChildren()}
-    if #children > self.maxLines then
+    while #children > self.maxLines do
         local oldestLine = children[1]
         oldestLine:Hide()
         oldestLine:SetParent(nil)
+        table.remove(children, 1)
+        -- 从 lastMessages 中移除对应的消息
         for s, m in pairs(self.lastMessages) do
             if m.line == oldestLine then
                 self.lastMessages[s] = nil
@@ -334,14 +360,36 @@ function ChatFilter:RefreshFilteredMessages()
     self.content:SetHeight(1)
 
     if ChatFilterDB.recentMessages then
+        local displayedSenders = {}
         for i = #ChatFilterDB.recentMessages, 1, -1 do
             local messageInfo = ChatFilterDB.recentMessages[i]
-            for _, keywordSet in ipairs(self.keywords) do
-                if self:ContainsKeyword(messageInfo.message, keywordSet) then
-                    self:DisplayFilteredMessage(messageInfo.event, messageInfo.message, messageInfo.sender)
-                    break
+            if not displayedSenders[messageInfo.sender] then
+                for _, keywordSet in ipairs(self.keywords) do
+                    if self:ContainsKeyword(messageInfo.message, keywordSet) then
+                        self:DisplayFilteredMessage(messageInfo.event, messageInfo.message, messageInfo.sender)
+                        displayedSenders[messageInfo.sender] = true
+                        break
+                    end
                 end
             end
+            if #self.lastMessages >= self.maxLines then
+                break
+            end
+        end
+    end
+end
+
+-- 添加一个新函数来清理旧消息
+function ChatFilter:CleanOldMessages()
+    local currentTime = time()
+    local oneDayAgo = currentTime - (24 * 60 * 60)  -- 24小时前的时间戳
+    
+    local i = 1
+    while i <= #ChatFilterDB.recentMessages do
+        if ChatFilterDB.recentMessages[i].time < oneDayAgo then
+            table.remove(ChatFilterDB.recentMessages, i)
+        else
+            i = i + 1
         end
     end
 end
