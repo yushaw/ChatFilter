@@ -13,6 +13,7 @@ local ChatFilter = {
     lastMessages = {},  -- 用于存储每个发言者的最后一条消息
     enabled = false,  -- 总开关状态
     debugMode = true,  -- 调试模式
+    playSound = true, -- 默认开启音频提醒
 }
 
 -- 职业颜色映射
@@ -281,6 +282,7 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
     end
 
     local currentTime = date("%H:%M")
+    local isNewMessage = false
 
     -- 检查是否是重复消息
     if self.lastMessages[sender] then
@@ -296,7 +298,10 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
             self.lastMessages[sender].line:Hide()
             self.lastMessages[sender].line:SetParent(nil)
             self.lastMessages[sender] = nil
+            isNewMessage = true
         end
+    else
+        isNewMessage = true
     end
 
     local line = CreateFrame("Frame", nil, self.content)
@@ -337,6 +342,21 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
 
     if self.autoScroll then
         self:ScrollToBottom()
+    end
+
+    -- 播放音频提醒
+    if isNewMessage and self.playSound then
+        PlaySound(SOUNDKIT.TELL_MESSAGE)  -- 使用系统内置的私聊消息音效
+    end
+end
+
+-- 添加一个新的命令来切换音频提醒
+function ChatFilter:ToggleSound()
+    self.playSound = not self.playSound
+    if self.playSound then
+        print("聊天过滤器音频提醒已开启")
+    else
+        print("聊天过滤器音频提醒已关闭")
     end
 end
 
@@ -609,6 +629,8 @@ SlashCmdList["CHATFILTER"] = function(msg)
         ChatFilter:ToggleFrame()
     elseif command == "list" then
         ChatFilter:ShowKeywordSets()
+    elseif command == "sound" then
+        ChatFilter:ToggleSound()
     elseif command == "add" and arg ~= "" then
         local keywords = {}
         for andGroup in arg:gmatch("([^;]+)") do
@@ -632,6 +654,7 @@ SlashCmdList["CHATFILTER"] = function(msg)
     else
         print("Chat Filter 命令:")
         print("/cf toggle - 开启/关闭 Chat Filter")
+        print("/cf sound - 开启/关闭音频提醒")
         print("/cf list - 显示所有关键词组合")
         print("/cf add <关键词组1>;<关键词组2>... - 添加关键词组合")
         print("/cf remove <索引> - 移除指定索引的关键词组合")
