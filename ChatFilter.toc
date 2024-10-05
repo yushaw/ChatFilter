@@ -1,7 +1,7 @@
 ## Interface: 90205
 ## Title: Chat Filter
 ## Notes: Filters and displays chat messages based on keywords
-## Author: 珠儿
+## Author: Charlie
 ## Version: 2.3
 ## SavedVariables: ChatFilterDB
 
