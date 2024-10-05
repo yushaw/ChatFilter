@@ -203,6 +203,7 @@ function ChatFilter:GetCachedClass(name)
 end
 
 -- 显示过滤后的消息
+-- 修改 DisplayFilteredMessage 函数
 function ChatFilter:DisplayFilteredMessage(event, message, sender)
     if not self.frame or not self.frame:IsShown() or not self.content then return end
 
@@ -214,13 +215,21 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
             -- 更新现有消息的时间戳
             self.lastMessages[sender].time = currentTime
             self.lastMessages[sender].timeString:SetText(currentTime)
+            
             -- 将这条消息移到最后（最新）
-            self.lastMessages[sender].line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, -self.content:GetHeight())
+            local line = self.lastMessages[sender].line
+            line:SetParent(nil)
+            line:SetParent(self.content)
+            line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, -self.content:GetHeight())
+            
+            -- 重新排列其他消息
+            self:ReorderMessages()
             return
         else
             -- 如果是同一个发送者的不同消息，移除旧消息
             self.lastMessages[sender].line:Hide()
             self.lastMessages[sender].line:SetParent(nil)
+            self.lastMessages[sender] = nil
         end
     end
 
@@ -254,32 +263,45 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
         timeString = timeString
     }
 
-    -- 限制显示的行数
-    local children = {self.content:GetChildren()}
-    while #children > self.maxLines do
-        local oldestLine = children[1]
-        oldestLine:Hide()
-        oldestLine:SetParent(nil)
-        table.remove(children, 1)
-        -- 从 lastMessages 中移除对应的消息
-        for s, m in pairs(self.lastMessages) do
-            if m.line == oldestLine then
-                self.lastMessages[s] = nil
-                break
-            end
-        end
-    end
-
-    local contentHeight = 0
-    for _, child in ipairs({self.content:GetChildren()}) do
-        contentHeight = contentHeight + child:GetHeight()
-    end
-    self.content:SetHeight(contentHeight)
+    -- 重新排列所有消息
+    self:ReorderMessages()
 
     self:UpdateScrollState()
 
     if self.autoScroll then
         self:ScrollToBottom()
+    end
+end
+
+-- 添加新函数来重新排列消息
+function ChatFilter:ReorderMessages()
+    local messages = {}
+    for _, msg in pairs(self.lastMessages) do
+        table.insert(messages, msg)
+    end
+
+    -- 按时间排序，最新的消息在前
+    table.sort(messages, function(a, b) return a.time > b.time end)
+
+    local contentHeight = 0
+    for i, msg in ipairs(messages) do
+        msg.line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, -contentHeight)
+        contentHeight = contentHeight + msg.line:GetHeight()
+    end
+
+    self.content:SetHeight(contentHeight)
+
+    -- 限制显示的行数
+    while #messages > self.maxLines do
+        local oldestMsg = table.remove(messages)
+        oldestMsg.line:Hide()
+        oldestMsg.line:SetParent(nil)
+        for sender, msg in pairs(self.lastMessages) do
+            if msg == oldestMsg then
+                self.lastMessages[sender] = nil
+                break
+            end
+        end
     end
 end
 
@@ -377,6 +399,8 @@ function ChatFilter:RefreshFilteredMessages()
             end
         end
     end
+
+    self:ReorderMessages()
 end
 
 -- 添加一个新函数来清理旧消息
