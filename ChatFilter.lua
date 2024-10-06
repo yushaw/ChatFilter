@@ -278,6 +278,7 @@ end
 -- 显示过滤后的消息
 function ChatFilter:DisplayFilteredMessage(event, message, sender)
     if not self.frame or not self.frame:IsShown() or not self.content then 
+        self:DebugPrint("Frame or content not available")
         return 
     end
 
@@ -306,6 +307,9 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
 
     local line = CreateFrame("Frame", nil, self.content)
     line:SetWidth(self.content:GetWidth())
+    line:SetFrameLevel(self.content:GetFrameLevel() + 1)
+
+    -- 使用 WotLK 兼容的方法设置背景
 
     local fullMessage = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fullMessage:SetPoint("TOPLEFT", line, "TOPLEFT", 5, -5)
@@ -323,12 +327,21 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
     local timeString = line:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     timeString:SetPoint("TOPRIGHT", line, "TOPRIGHT", -5, -5)
     timeString:SetText(currentTime)
-    timeString:SetTextColor(0.5, 0.5, 0.5)
+    timeString:SetTextColor(0.7, 0.7, 0.7)  -- 更亮的灰色
 
     -- 计算并设置行高
     fullMessage:SetWidth(line:GetWidth() - 60)  -- 减去时间戳的宽度和一些边距
     local messageHeight = fullMessage:GetStringHeight() + 10  -- 添加一些垂直边距
     line:SetHeight(messageHeight)
+
+    -- 添加点击角色名称的功能
+    local nameLength = fullMessage:GetStringWidth(coloredName)
+    local nameButton = CreateFrame("Button", nil, line)
+    nameButton:SetPoint("TOPLEFT", fullMessage, "TOPLEFT", 0, 0)
+    nameButton:SetSize(nameLength, fullMessage:GetStringHeight())
+    nameButton:SetScript("OnClick", function()
+        ChatFrame_OpenChat("/w " .. sender .. " ")
+    end)
 
     self.lastMessages[sender] = {
         line = line,
@@ -346,8 +359,9 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
 
     -- 播放音频提醒
     if isNewMessage and self.playSound then
-        PlaySound(SOUNDKIT.TELL_MESSAGE)  -- 使用系统内置的私聊消息音效
+        PlaySound(SOUNDKIT.TELL_MESSAGE)
     end
+
 end
 
 -- 添加一个新的命令来切换音频提醒
