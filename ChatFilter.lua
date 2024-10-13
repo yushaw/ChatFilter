@@ -307,15 +307,13 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
 
     local line = CreateFrame("Frame", nil, self.content)
     line:SetWidth(self.content:GetWidth())
-    line:SetFrameLevel(self.content:GetFrameLevel() + 1)
-
-    -- 使用 WotLK 兼容的方法设置背景
+    line:SetHeight(20) -- 设置一个初始高度，稍后会根据实际内容调整
 
     local fullMessage = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fullMessage:SetPoint("TOPLEFT", line, "TOPLEFT", 5, -5)
     fullMessage:SetPoint("RIGHT", line, "RIGHT", -55, 0)
     fullMessage:SetJustifyH("LEFT")
-    fullMessage:SetSpacing(2)  -- 添加行间距
+    fullMessage:SetSpacing(2)
 
     local r, g, b = self:GetClassColor(sender)
     local coloredName = string.format("|cFF%02X%02X%02X%s|r", r*255, g*255, b*255, sender)
@@ -327,11 +325,11 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
     local timeString = line:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     timeString:SetPoint("TOPRIGHT", line, "TOPRIGHT", -5, -5)
     timeString:SetText(currentTime)
-    timeString:SetTextColor(0.7, 0.7, 0.7)  -- 更亮的灰色
+    timeString:SetTextColor(0.7, 0.7, 0.7)
 
     -- 计算并设置行高
-    fullMessage:SetWidth(line:GetWidth() - 60)  -- 减去时间戳的宽度和一些边距
-    local messageHeight = fullMessage:GetStringHeight() + 10  -- 添加一些垂直边距
+    fullMessage:SetWidth(line:GetWidth() - 60)
+    local messageHeight = fullMessage:GetStringHeight() + 10
     line:SetHeight(messageHeight)
 
     -- 添加点击角色名称的功能
@@ -351,7 +349,6 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
     }
 
     self:ReorderMessages()
-    self:UpdateScrollState()
 
     if self.autoScroll then
         self:ScrollToBottom()
@@ -361,7 +358,6 @@ function ChatFilter:DisplayFilteredMessage(event, message, sender)
     if isNewMessage and self.playSound then
         PlaySound(SOUNDKIT.TELL_MESSAGE)
     end
-
 end
 
 -- 添加一个新的命令来切换音频提醒
@@ -381,35 +377,24 @@ function ChatFilter:ReorderMessages()
         table.insert(messages, msg)
     end
 
-    table.sort(messages, function(a, b) return a.time < b.time end)
+    -- 按时间降序排序，最新的消息在数组的开头
+    table.sort(messages, function(a, b) return a.time > b.time end)
 
-    local contentHeight = 0
-    for i, msg in ipairs(messages) do
-        contentHeight = contentHeight + msg.line:GetHeight()
-    end
-
-    local scrollFrameHeight = self.scrollFrame:GetHeight()
     local yOffset = 0
-
-    -- 如果内容高度小于滚动框体高度，从顶部开始显示消息
-    if contentHeight < scrollFrameHeight then
-        yOffset = 0
-    else
-        yOffset = -(contentHeight - scrollFrameHeight)
-    end
-
     for i, msg in ipairs(messages) do
         msg.line:ClearAllPoints()
-        msg.line:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, yOffset)
+        msg.line:SetPoint("BOTTOMLEFT", self.content, "BOTTOMLEFT", 0, yOffset)
         msg.line:SetPoint("RIGHT", self.content, "RIGHT")
         msg.line:Show()
-        yOffset = yOffset - msg.line:GetHeight()
+        yOffset = yOffset + msg.line:GetHeight()
     end
 
-    self.content:SetHeight(math.max(contentHeight, scrollFrameHeight))
+    local contentHeight = yOffset
+    self.content:SetHeight(math.max(contentHeight, self.scrollFrame:GetHeight()))
 
+    -- 移除超过最大行数的旧消息
     while #messages > self.maxLines do
-        local oldestMsg = table.remove(messages, 1)
+        local oldestMsg = table.remove(messages)
         oldestMsg.line:Hide()
         oldestMsg.line:SetParent(nil)
         for sender, msg in pairs(self.lastMessages) do
@@ -463,8 +448,11 @@ end
 
 -- 滚动到底部
 function ChatFilter:ScrollToBottom()
-    self.autoScroll = true
-    self:UpdateScrollPosition()
+    C_Timer.After(0.05, function()
+        self.scrollFrame:SetVerticalScroll(self.scrollFrame:GetVerticalScrollRange())
+        self.autoScroll = true
+        self:UpdateScrollState()
+    end)
 end
 
 -- 更新滚动状态
