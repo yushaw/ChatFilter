@@ -634,6 +634,9 @@ SlashCmdList["CHATFILTER"] = function(msg)
     elseif command == "sound" then
         ChatFilter:ToggleSound()
     elseif command == "add" and arg ~= "" then
+        -- 将中文符号转换为英文符号
+        arg = arg:gsub("，", ","):gsub("；", ";")
+        
         local keywords = {}
         for andGroup in arg:gmatch("([^;]+)") do
             local orGroup = {}
